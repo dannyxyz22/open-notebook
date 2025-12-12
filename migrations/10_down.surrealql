@@ -1,0 +1,24 @@
+-- Migration 10 Down: Remove multiuser support
+
+-- Remove user field from notebook table
+REMOVE FIELD IF EXISTS user ON TABLE notebook;
+
+-- Remove index on notebook user
+REMOVE INDEX IF EXISTS idx_notebook_user ON TABLE notebook;
+
+-- Remove user field from note table
+REMOVE FIELD IF EXISTS user ON TABLE note;
+
+-- Remove index on note user
+REMOVE INDEX IF EXISTS idx_note_user ON TABLE note;
+
+-- Remove user field from source table
+REMOVE FIELD IF EXISTS user ON TABLE source;
+
+-- Remove index on source user
+REMOVE INDEX IF EXISTS idx_source_user ON TABLE source;
+
+-- Remove user table and indexes
+REMOVE INDEX IF EXISTS idx_user_username ON TABLE user;
+REMOVE INDEX IF EXISTS idx_user_email ON TABLE user;
+REMOVE TABLE IF EXISTS user;

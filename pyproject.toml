@@ -40,6 +40,8 @@ dependencies = [
     "surrealdb>=1.0.4",
     "podcast-creator>=0.7.0",
     "surreal-commands>=1.2.0",
+    "bcrypt>=4.1.0",
+    "python-jose[cryptography]>=3.3.0",
 ]
 
 [tool.setuptools]
