@@ -422,3 +422,44 @@ class SourceStatusResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     message: str
+
+
+# User API models
+class UserRegister(BaseModel):
+    username: str = Field(..., description="Username (3-50 characters)", min_length=3, max_length=50)
+    email: str = Field(..., description="Email address")
+    password: str = Field(..., description="Password (minimum 6 characters)", min_length=6)
+    full_name: Optional[str] = Field(None, description="Full name")
+
+
+class UserLogin(BaseModel):
+    username: str = Field(..., description="Username or email")
+    password: str = Field(..., description="Password")
+
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    email: str
+    full_name: Optional[str]
+    is_active: bool
+    is_admin: bool
+    last_login: Optional[str]
+    created: str
+    updated: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str = Field(..., description="JWT access token")
+    token_type: str = Field(default="bearer", description="Token type")
+    user: UserResponse = Field(..., description="User information")
+
+
+class UserUpdate(BaseModel):
+    email: Optional[str] = Field(None, description="Email address")
+    full_name: Optional[str] = Field(None, description="Full name")
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., description="New password (minimum 6 characters)", min_length=6)

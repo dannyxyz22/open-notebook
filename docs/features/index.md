@@ -71,6 +71,14 @@ Create professional multi-speaker podcasts from your research.
 - Audio quality settings and customization
 - Export and sharing capabilities
 
+### 👥 **[Multiuser Support](multiuser.md)** 🆕
+Enable multiple users with individual accounts and data isolation.
+- JWT-based authentication system
+- Individual user accounts with secure password hashing
+- Complete data isolation between users
+- Backward compatible with single-user installations
+- Seamless migration for existing installations
+
 ---
 
 ## Feature Comparison

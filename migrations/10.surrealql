@@ -1,0 +1,62 @@
+-- Migration 10: Add multiuser support
+-- Creates user table and relationships for notebooks, notes, and sources
+
+-- Create user table
+DEFINE TABLE IF NOT EXISTS user SCHEMAFULL;
+
+DEFINE FIELD IF NOT EXISTS username ON TABLE user TYPE string;
+DEFINE FIELD IF NOT EXISTS email ON TABLE user TYPE string;
+DEFINE FIELD IF NOT EXISTS password_hash ON TABLE user TYPE string;
+DEFINE FIELD IF NOT EXISTS full_name ON TABLE user TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS is_active ON TABLE user TYPE bool DEFAULT true;
+DEFINE FIELD IF NOT EXISTS is_admin ON TABLE user TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS last_login ON TABLE user TYPE option<datetime>;
+
+DEFINE FIELD IF NOT EXISTS created ON user DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS updated ON user DEFAULT time::now() VALUE time::now();
+
+-- Create unique index on username
+DEFINE INDEX IF NOT EXISTS idx_user_username ON TABLE user COLUMNS username UNIQUE;
+
+-- Create unique index on email
+DEFINE INDEX IF NOT EXISTS idx_user_email ON TABLE user COLUMNS email UNIQUE;
+
+-- Add user field to notebook table
+DEFINE FIELD IF NOT EXISTS user ON TABLE notebook TYPE option<record<user>>;
+
+-- Create index on notebook user for fast lookups
+DEFINE INDEX IF NOT EXISTS idx_notebook_user ON TABLE notebook COLUMNS user;
+
+-- Add user field to note table
+DEFINE FIELD IF NOT EXISTS user ON TABLE note TYPE option<record<user>>;
+
+-- Create index on note user for fast lookups
+DEFINE INDEX IF NOT EXISTS idx_note_user ON TABLE note COLUMNS user;
+
+-- Add user field to source table
+DEFINE FIELD IF NOT EXISTS user ON TABLE source TYPE option<record<user>>;
+
+-- Create index on source user for fast lookups
+DEFINE INDEX IF NOT EXISTS idx_source_user ON TABLE source COLUMNS user;
+
+-- Create default admin user if no users exist
+-- Password is 'admin' (should be changed on first login)
+-- Hash generated with bcrypt: $2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5LE2bZaXI3/u.
+IF array::len(select * from user) == 0 THEN
+    CREATE user:admin SET
+        username = "admin",
+        email = "admin@localhost",
+        password_hash = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5LE2bZaXI3/u.",
+        full_name = "Administrator",
+        is_active = true,
+        is_admin = true
+END;
+
+-- Assign existing notebooks to admin user
+UPDATE notebook SET user = user:admin WHERE user = NONE;
+
+-- Assign existing notes to admin user
+UPDATE note SET user = user:admin WHERE user = NONE;
+
+-- Assign existing sources to admin user
+UPDATE source SET user = user:admin WHERE user = NONE;

@@ -84,8 +84,15 @@ app = FastAPI(
 )
 
 # Add password authentication middleware first
-# Exclude /api/auth/status and /api/config from authentication
-app.add_middleware(PasswordAuthMiddleware, excluded_paths=["/", "/health", "/docs", "/openapi.json", "/redoc", "/api/auth/status", "/api/config"])
+# Exclude auth endpoints and public endpoints from authentication
+app.add_middleware(
+    PasswordAuthMiddleware, 
+    excluded_paths=[
+        "/", "/health", "/docs", "/openapi.json", "/redoc",
+        "/api/auth/status", "/api/auth/register", "/api/auth/login",
+        "/api/config"
+    ]
+)
 
 # Add CORS middleware last (so it processes first)
 app.add_middleware(
