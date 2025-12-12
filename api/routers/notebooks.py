@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
 from api.models import NotebookCreate, NotebookResponse, NotebookUpdate
@@ -13,21 +13,37 @@ router = APIRouter()
 
 @router.get("/notebooks", response_model=List[NotebookResponse])
 async def get_notebooks(
+    request: Request,
     archived: Optional[bool] = Query(None, description="Filter by archived status"),
     order_by: str = Query("updated desc", description="Order by field and direction"),
 ):
     """Get all notebooks with optional filtering and ordering."""
     try:
-        # Build the query with counts
-        query = f"""
-            SELECT *,
-            count(<-reference.in) as source_count,
-            count(<-artifact.in) as note_count
-            FROM notebook
-            ORDER BY {order_by}
-        """
-
-        result = await repo_query(query)
+        # Get user from request state (set by auth middleware)
+        user_id = getattr(request.state, "user_id", None)
+        
+        # Build the query with counts and user filter
+        if user_id:
+            # Multiuser mode - filter by user
+            query = f"""
+                SELECT *,
+                count(<-reference.in) as source_count,
+                count(<-artifact.in) as note_count
+                FROM notebook
+                WHERE user = $user_id
+                ORDER BY {order_by}
+            """
+            result = await repo_query(query, {"user_id": ensure_record_id(user_id)})
+        else:
+            # Single-user mode (backward compatibility) - show all notebooks
+            query = f"""
+                SELECT *,
+                count(<-reference.in) as source_count,
+                count(<-artifact.in) as note_count
+                FROM notebook
+                ORDER BY {order_by}
+            """
+            result = await repo_query(query)
 
         # Filter by archived status if specified
         if archived is not None:
@@ -54,12 +70,16 @@ async def get_notebooks(
 
 
 @router.post("/notebooks", response_model=NotebookResponse)
-async def create_notebook(notebook: NotebookCreate):
+async def create_notebook(request: Request, notebook: NotebookCreate):
     """Create a new notebook."""
     try:
+        # Get user from request state (set by auth middleware)
+        user_id = getattr(request.state, "user_id", None)
+        
         new_notebook = Notebook(
             name=notebook.name,
             description=notebook.description,
+            user=user_id,  # Assign to current user
         )
         await new_notebook.save()
 
@@ -83,9 +103,12 @@ async def create_notebook(notebook: NotebookCreate):
 
 
 @router.get("/notebooks/{notebook_id}", response_model=NotebookResponse)
-async def get_notebook(notebook_id: str):
+async def get_notebook(request: Request, notebook_id: str):
     """Get a specific notebook by ID."""
     try:
+        # Get user from request state (set by auth middleware)
+        user_id = getattr(request.state, "user_id", None)
+        
         # Query with counts for single notebook
         query = """
             SELECT *,
@@ -99,6 +122,15 @@ async def get_notebook(notebook_id: str):
             raise HTTPException(status_code=404, detail="Notebook not found")
 
         nb = result[0]
+        
+        # Check user access (only in multiuser mode)
+        if user_id:
+            notebook_user = nb.get("user")
+            # Convert notebook_user to string if it's a RecordID
+            notebook_user_str = str(notebook_user) if notebook_user else None
+            if notebook_user_str and notebook_user_str != user_id:
+                raise HTTPException(status_code=403, detail="Access denied")
+        
         return NotebookResponse(
             id=str(nb.get("id", "")),
             name=nb.get("name", ""),
@@ -119,12 +151,21 @@ async def get_notebook(notebook_id: str):
 
 
 @router.put("/notebooks/{notebook_id}", response_model=NotebookResponse)
-async def update_notebook(notebook_id: str, notebook_update: NotebookUpdate):
+async def update_notebook(request: Request, notebook_id: str, notebook_update: NotebookUpdate):
     """Update a notebook."""
     try:
+        # Get user from request state (set by auth middleware)
+        user_id = getattr(request.state, "user_id", None)
+        
         notebook = await Notebook.get(notebook_id)
         if not notebook:
             raise HTTPException(status_code=404, detail="Notebook not found")
+        
+        # Check user access (only in multiuser mode)
+        if user_id:
+            notebook_user_str = str(notebook.user) if notebook.user else None
+            if notebook_user_str and notebook_user_str != user_id:
+                raise HTTPException(status_code=403, detail="Access denied")
 
         # Update only provided fields
         if notebook_update.name is not None:
@@ -181,18 +222,33 @@ async def update_notebook(notebook_id: str, notebook_update: NotebookUpdate):
 
 
 @router.post("/notebooks/{notebook_id}/sources/{source_id}")
-async def add_source_to_notebook(notebook_id: str, source_id: str):
+async def add_source_to_notebook(request: Request, notebook_id: str, source_id: str):
     """Add an existing source to a notebook (create the reference)."""
     try:
+        # Get user from request state (set by auth middleware)
+        user_id = getattr(request.state, "user_id", None)
+        
         # Check if notebook exists
         notebook = await Notebook.get(notebook_id)
         if not notebook:
             raise HTTPException(status_code=404, detail="Notebook not found")
+        
+        # Check user access to notebook (only in multiuser mode)
+        if user_id:
+            notebook_user_str = str(notebook.user) if notebook.user else None
+            if notebook_user_str and notebook_user_str != user_id:
+                raise HTTPException(status_code=403, detail="Access denied to notebook")
 
         # Check if source exists
         source = await Source.get(source_id)
         if not source:
             raise HTTPException(status_code=404, detail="Source not found")
+        
+        # Check user access to source (only in multiuser mode)
+        if user_id:
+            source_user_str = str(source.user) if source.user else None
+            if source_user_str and source_user_str != user_id:
+                raise HTTPException(status_code=403, detail="Access denied to source")
 
         # Check if reference already exists (idempotency)
         existing_ref = await repo_query(
@@ -226,13 +282,22 @@ async def add_source_to_notebook(notebook_id: str, source_id: str):
 
 
 @router.delete("/notebooks/{notebook_id}/sources/{source_id}")
-async def remove_source_from_notebook(notebook_id: str, source_id: str):
+async def remove_source_from_notebook(request: Request, notebook_id: str, source_id: str):
     """Remove a source from a notebook (delete the reference)."""
     try:
+        # Get user from request state (set by auth middleware)
+        user_id = getattr(request.state, "user_id", None)
+        
         # Check if notebook exists
         notebook = await Notebook.get(notebook_id)
         if not notebook:
             raise HTTPException(status_code=404, detail="Notebook not found")
+        
+        # Check user access to notebook (only in multiuser mode)
+        if user_id:
+            notebook_user_str = str(notebook.user) if notebook.user else None
+            if notebook_user_str and notebook_user_str != user_id:
+                raise HTTPException(status_code=403, detail="Access denied")
 
         # Delete the reference record linking source to notebook
         await repo_query(
@@ -256,12 +321,21 @@ async def remove_source_from_notebook(notebook_id: str, source_id: str):
 
 
 @router.delete("/notebooks/{notebook_id}")
-async def delete_notebook(notebook_id: str):
+async def delete_notebook(request: Request, notebook_id: str):
     """Delete a notebook."""
     try:
+        # Get user from request state (set by auth middleware)
+        user_id = getattr(request.state, "user_id", None)
+        
         notebook = await Notebook.get(notebook_id)
         if not notebook:
             raise HTTPException(status_code=404, detail="Notebook not found")
+        
+        # Check user access (only in multiuser mode)
+        if user_id:
+            notebook_user_str = str(notebook.user) if notebook.user else None
+            if notebook_user_str and notebook_user_str != user_id:
+                raise HTTPException(status_code=403, detail="Access denied")
 
         await notebook.delete()
 
